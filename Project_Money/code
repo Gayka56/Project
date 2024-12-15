@@ -1,1 +1,172 @@
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <string>
+#include <algorithm>
 
+using namespace std;
+
+// Абстрактный базовый класс для валют
+class Currency {
+public:
+    string code;
+    double rateToUSD; // Курс валюты относительно USD (или другой базовой валюты)
+
+    virtual ~Currency() {}
+
+    Currency(const string& code, double rateToUSD) : code(code), rateToUSD(rateToUSD) {}
+
+    // Абстрактный метод для конвертации в другую валюту
+    virtual double convertTo(Currency* targetCurrency, double amount) = 0;
+};
+
+// Класс для обычных валют (фиатных валют)
+class FiatCurrency : public Currency {
+public:
+    FiatCurrency(const string& code, double rateToUSD) : Currency(code, rateToUSD) {}
+
+    // Реализация конвертации для обычных валют
+    double convertTo(Currency* targetCurrency, double amount) override {
+        return amount * (targetCurrency->rateToUSD / this->rateToUSD);
+    }
+};
+
+// Класс для криптовалют
+class CryptoCurrency : public Currency {
+public:
+    CryptoCurrency(const string& code, double rateToUSD) : Currency(code, rateToUSD) {}
+
+    // Реализация конвертации для криптовалют
+    double convertTo(Currency* targetCurrency, double amount) override {
+        return amount * (targetCurrency->rateToUSD / this->rateToUSD);
+    }
+
+    // Метод для обновления курса криптовалюты (если нужно)
+    void updateRate(double newRate) {
+        rateToUSD = newRate;
+    }
+};
+
+// Интерфейс Observer для уведомлений
+class IObserver {
+public:
+    virtual void update(const string& currencyCode, double newRate) = 0;
+};
+
+// Класс для уведомления пользователей
+class NotificationSystem {
+    vector<IObserver*> observers;
+
+public:
+    void addObserver(IObserver* observer) {
+        observers.push_back(observer);
+    }
+
+    void removeObserver(IObserver* observer) {
+        observers.erase(remove(observers.begin(), observers.end(), observer), observers.end());
+    }
+
+    void notifyObservers(const string& currencyCode, double newRate) {
+        for (size_t i = 0; i < observers.size(); ++i) {
+            observers[i]->update(currencyCode, newRate);
+        }
+    }
+};
+
+// Класс для обновления курса валют
+class CurrencyRateUpdater {
+    unordered_map<string, Currency*> currencies;
+    NotificationSystem& notificationSystem;
+
+public:
+    CurrencyRateUpdater(NotificationSystem& ns) : notificationSystem(ns) {}
+
+    void addCurrency(Currency* currency) {
+        currencies[currency->code] = currency;
+    }
+
+    void updateCurrencyRate(const string& currencyCode, double newRate) {
+        if (currencies.find(currencyCode) != currencies.end()) {
+            currencies[currencyCode]->rateToUSD = newRate;
+            notificationSystem.notifyObservers(currencyCode, newRate);
+        }
+    }
+
+    Currency* getCurrency(const string& currencyCode) {
+        return currencies[currencyCode];
+    }
+};
+
+// Конкретный Observer для подписчиков
+class CurrencySubscriber : public IObserver {
+    string currencyCode;
+    double alertRate;
+
+public:
+    CurrencySubscriber(const string& currencyCode, double alertRate)
+        : currencyCode(currencyCode), alertRate(alertRate) {}
+
+    void update(const string& currencyCode, double newRate) {
+        if (currencyCode == this->currencyCode && newRate >= alertRate) {
+            cout << "Курс валюты " << currencyCode << " равен " << newRate << endl;
+        }
+    }
+};
+
+// Фабрика для создания новых валют с курсом, зависящим от другой валюты
+class CurrencyFactory {
+public:
+    static Currency* createCurrency(const string& code, Currency* baseCurrency, double rateMultiplier) {
+        double newRate = baseCurrency->rateToUSD * rateMultiplier;
+        return new FiatCurrency(code, newRate);
+    }
+};
+
+int main() {
+    setlocale(LC_ALL, "rus");
+
+    // Создаем систему уведомлений
+    NotificationSystem notificationSystem;
+
+    // Создаем обновляющий механизм курсов
+    CurrencyRateUpdater rateUpdater(notificationSystem);
+
+    // Добавляем несколько валют
+    FiatCurrency usd("USD", 1.0); // USD как базовая валюта
+    FiatCurrency eur("EUR", 0.9);
+    FiatCurrency gbp("GBP", 0.75);
+    CryptoCurrency btc("BTC", 40000); // Курс биткойна в долларах
+
+    rateUpdater.addCurrency(&usd);
+    rateUpdater.addCurrency(&eur);
+    rateUpdater.addCurrency(&gbp);
+    rateUpdater.addCurrency(&btc);
+
+    // Создаем подписчиков
+    CurrencySubscriber subscriber1("EUR", 1.0);
+    CurrencySubscriber subscriber2("GBP", 1.0);
+    CurrencySubscriber subscriber3("BTC", 35000);
+
+    notificationSystem.addObserver(&subscriber1);
+    notificationSystem.addObserver(&subscriber2);
+    notificationSystem.addObserver(&subscriber3);
+
+    // Обновляем курс валют
+    rateUpdater.updateCurrencyRate("EUR", 1.05); // Обновляем курс EUR
+    rateUpdater.updateCurrencyRate("GBP", 1.1);  // Обновляем курс GBP
+    rateUpdater.updateCurrencyRate("BTC", 45000); // Обновляем курс BTC
+
+    // Динамически создаем новую валюту
+    Currency* newCurrency = CurrencyFactory::createCurrency("MYC", &usd, 0.85);
+    rateUpdater.addCurrency(newCurrency);
+
+    // Обновляем курс новой валюты
+    rateUpdater.updateCurrencyRate("MYC", 0.9);
+
+    //конвертация валюты
+    cout << "Конвертация 50 USD в EUR: " << usd.convertTo(&eur, 50) << endl;
+    cout << "Конвертация 50 USD в BTC: " << usd.convertTo(&btc, 50) << endl;
+
+    delete newCurrency;
+    return 0;
+}
